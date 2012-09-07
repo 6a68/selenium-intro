@@ -1,0 +1,29 @@
+goal: get an interested programmer up to speed on high-level stuff about selenium and page object models.
+goal specific to mozilla and browserid: make sure each of the parts underneath bidpom is explained, so people can contribute and understand what's up.
+goal: get a really solid cookbook together.
+
+existing resources to mention that support the annotated code samples:
+- an overview of webdriver (Java centric but still straightforward)
+    - here's the official 5 Minute Getting Started Guide: http://code.google.com/p/selenium/wiki/GettingStarted
+- here is a good intro to page objects in very readable java: http://code.google.com/p/selenium/wiki/PageObjects
+    - here's the summary from that page, which is really good:
+        The public methods represent the services that the page offers
+        Try not to expose the internals of the page
+        Generally don't make assertions
+        Methods return other PageObjects
+        Need not represent an entire page
+        Different results for the same action are modelled as different methods 
+- note that the RemoteWebDriver is two parts: client (the test code) and server (java server which lives on the box with the browser). 
+    - more: http://code.google.com/p/selenium/wiki/RemoteWebDriverServer
+- advanced, super useful, but definitely skippable on a first pass: the json wire protocol
+    - http://code.google.com/p/selenium/wiki/JsonWireProtocol
+
+ok, what else? how about: defining some terms:
+	- what is selenium?
+	- what is selenium python?
+
+explaining the libraries/dependencies:
+	- what is pytest?
+	- what is unittestzero?
+	- what is pytest-mozwebqa?
+	- what is bidpom?
