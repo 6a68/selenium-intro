@@ -1,0 +1,37 @@
+# Selenium from zero to POMs
+## What is Selenium
+- browser automation toolkit
+- RC vs webdriver: JS vs OS automation
+### Code pls
+- code: open browser, surf to google, search for something, open window, toggle windows
+
+### Debugging
+- there's nothing quite as amazing as opening a python (or node) terminal and driving the browser.
+- this is a good way to debug, too: open pdb on failure and look around
+
+### Other browsers & configuration tricks
+- IEDriver, CHromeDriver, etc
+- Capabilities (and link to capabilities and client-server docs)
+- Sauce Labs & the need for the standalone JAR
+
+## POMs: an approach to reusability
+### first obvious thing: collect selectors in one place
+- this is why you use `By.ID` and `find_element`, not `find_element_by_id`
+### second, nicer, less obvious abstraction: POMs
+- mention two ways to slice it: POMs vs bot style (with link to bot style wiki pg)
+- abstract out, not just selectors, but higher-level actions
+-- in the case of google: 'log in' (maybe to test web history), 'search for X'
+- POMs can apply to whole pages or just partials
+-- eg, steps in a flow, or widgets within a page, or header and footer
+- so, hide the selector info inside the POM
+- give it low-level (click, type) and high-level (login, logout, search) API
+-- exposing lower-level click behavior lets you make slightly different tests without having to hack on the POMs every time. it adds flexibility.
+- now you have fat models and thin tests, and your tests will be updated in exactly one place if the login flow changes
+## Gotchas, things to watch for
+- StaleElementReference errors are caused by DOM node cache
+- very dynamic elements can cause click targets to move (our bug with gravatar loading causing logout click error)
+- other stuff? ask around
+## References: going deeper
+- python API ref
+- json wire protocol ref
+- wd library
