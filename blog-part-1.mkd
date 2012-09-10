@@ -11,16 +11,8 @@ If you convert manual QA tests into scripts, the natural next step is to try to 
 Having an automatable browser is a huge thing for testing web apps. We're currently using Selenium in a couple of ways: 
 
 - **Selenium tests as backup monitoring solution:** we have a browser trying to log into production on a five-minute cron, as a high-level complement to our pretty minimal lower-level nagios monitors
-- **Selenium tests as pull request sanity check:** we are an open source project, which means we can (and do) use Travis-CI to automatically run unit tests against github pull requests. We added Selenium tests to this--more on it later.(*)
+- **Selenium tests as pull request sanity check:** we are an open source project, which means we can (and do) use Travis-CI to automatically run unit tests against github pull requests. We added Selenium tests to this; see [below](#footy) for details.
 - **Selenium tests for QA automation:** Since QA testers click around in browsers, and Selenium tests click around in browsers, you can replace repetitive manual testing with a Selenium script that runs across OS/browser combinations. This is the usual use of Selenium, and it's what we'll be focused on for the rest of this article.
-
-(*) Travis-CI doesn't give you anyplace to hide your configs, so rather than have Travis kick off Selenium jobs for us, we had to do the following:
-- Travis pings a server, creatively named 'testy'
-- testy uses awsbox to quickly spin up an EC2 instance and deploy the branch from the pull request
-- testy then uses Sauce Labs' browsers in the cloud to run Selenium tests against the EC2 instance running the code
-- testy aggregates test results and ships them back to Travis
-- Travis fails the pull if the Selenium tests failed
-It's an awesome system, but definitely has a few moving parts.
 
 Okay, enough talk. Let's see some code.
 
@@ -82,89 +74,90 @@ Sweet! No complaints. By the way, since we're in an interactive session, you cou
     u'123done - your tasks, simplified'
     >>>
 
-So far, so good. Now, let's go through the signup flow. Persona's signup flow requires you click a link in a verification email. In real life, we automate this using [restmail](https://github.com/lloyd/restmail), an open-source tool that provides a RESTful interface to a throwaway email account. But, to keep things simple right now, we'll just use a real email address, fish out the link by hand, and paste it back into this python session. Here we go:
+So far, so good. Now, let's go through the signup flow. Persona's signup flow requires you click a link in a verification email. In real life, we automate this using [restmail](https://github.com/lloyd/restmail), an open-source tool that provides a RESTful interface to a throwaway email account. But, to keep things simple right now, we'll just use a real email address, fish out the link by hand, and paste it back into this python session.
+
+To make it easier to copy-and-paste code, I'm leaving out the '>>>' symbol in the rest of the article.
 
 Find and click 'sign up':
 
-    >>> driver.find_element_by_css_selector('#loggedout > button').click()
+    driver.find_element_by_css_selector('#loggedout > button').click()
 
 We're about to switch to the popup, but let's grab a pointer to the parent window first (this is helpful because the parent window doesn't have a `name` attribute)
     
-    >>> parent_window = driver.current_window
+    parent_window = driver.current_window
 
 Switch to the popup, using its `name`, '__persona_dialog'. Let's use WebDriverWait again, this time to wait for the dialog to open by looking for the dialog's title in the list of windows:
 
-    >>> WebDriverWait(driver, 8000).until(
-    ...     lambda driver: '__persona_dialog' in driver.window_handles)
+    WebDriverWait(driver, 8000).until(
+        lambda driver: '__persona_dialog' in driver.window_handles)
 
 Once that WebDriverWait has returned, the popup is ready, so switch to it:
 
-    >>> driver.switch_to_window('__persona_dialog')
+    driver.switch_to_window('__persona_dialog')
 
 And again, as a sanity check, check the popup's title:
     
-    >>> assert driver.title == 'Mozilla Persona: A Better Way to Sign In'
-    >>>
+    assert driver.title == 'Mozilla Persona: A Better Way to Sign In'
 
 Totally awesome. Here's where you'll need to enter **your email** and a dummy password. I'll set them as variables to make it easy to copy and paste:
 
-    >>> test_email = 'YOUR_DUMMY_EMAIL_HERE :-)'
-    >>> test_password = 'Secr3tzRkewl'
+    test_email = 'YOUR_DUMMY_EMAIL_HERE :-)'
+    test_password = 'Secr3tzRkewl'
 
 Arright. Now, have the driver find the email input and enter your email address. Note we're using `find_element_by_id`:
 
-    >>> emailInput = driver.find_element_by_id('email')
-    >>> emailInput.clear()
-    >>> emailInput.send_keys(test_email)
+    emailInput = driver.find_element_by_id('email')
+    emailInput.clear()
+    emailInput.send_keys(test_email)
 
 Then hit 'next' and wait for the second step to load.
 
-    >>> driver.find_element_by_css_selector('button.start').click()
-    >>> WebDriverWait(driver, 5000).until(
-    ...    lambda driver: driver.find_element_by_id('password').is_displayed())
+    driver.find_element_by_css_selector('button.start').click()
+    WebDriverWait(driver, 5000).until(
+        lambda driver: driver.find_element_by_id('password').is_displayed())
 
 Fill in the two password fields:
 
-    >>> passwordInput = driver.find_element_by_id('password')
-    >>> passwordInput.clear()
-    >>> passwordInput.send_keys(test_password)
-    >>> verifyPasswordInput = driver.find_element_by_id('vpassword')
-    >>> verifyPasswordInput.clear()
-    >>> verifyPasswordInput.send_keys(test_password)
+    passwordInput = driver.find_element_by_id('password')
+    passwordInput.clear()
+    passwordInput.send_keys(test_password)
+    verifyPasswordInput = driver.find_element_by_id('vpassword')
+    verifyPasswordInput.clear()
+    verifyPasswordInput.send_keys(test_password)
 
 Hit the 'done' button:
 
-    >>> driver.find_element_by_id('verify_user').click()
+    driver.find_element_by_id('verify_user').click()
 
 OK. Now you should see the 'check your email' screen. Here's a WebDriverWait that'll do it programmatically, though the selector is pretty gross:
 
-    >>> WebDriverWait(driver, 5000).until(lambda driver: 
-        ... driver.find_element_by_css_selector('#wait .contents h2 + p strong').is_displayed())
+    WebDriverWait(driver, 5000).until(lambda driver: 
+        driver.find_element_by_css_selector('#wait .contents h2 + p strong').is_displayed())
 
 You could also just look at the popup ;-)
 
 At this point, look for an email from Persona in your inbox. Copy the verification link and toss it in the python session:
 
-    >>> # don't use my link, use your link!
-    >>> verify_link = 'https://login.dev.anosrep.org/verify_email_address?token=pgNgTNEdGyiQfnE3o98mjA2Tai3D55PhHdnwu6FCts8f67nD'
+    # don't use my link, use your link!
+    verify_link = 'https://login.dev.anosrep.org/verify_email_address?token=pgNgTNEdGyiQfnE3o98mjA2Tai3D55PhHdnwu6FCts8f67nD'
 
 Now, we'll finish up by having Selenium switch back to the main window, open the verification link, then wait for the 'thank you' page to load. After 5 seconds, there's a redirect to the 'account manager' page. We can verify both links in the chain using two WebDriverWaits:
 
-    >>> driver.switch_to_window(parent_window)
-    >>> driver.get(verify_link)
-    >>> WebDriverWait(driver, 8000).until(
-    ...     lambda driver: driver.title == 'Mozilla Persona: Complete Registration')
-    >>> WebDriverWait(driver, 12000).until(
-    ...     lambda driver: driver.find_element_by_id('manage').is_displayed())
+    driver.switch_to_window(parent_window)
+    driver.get(verify_link)
+    WebDriverWait(driver, 8000).until(
+        lambda driver: driver.title == 'Mozilla Persona: Complete Registration')
+    WebDriverWait(driver, 12000).until(
+        lambda driver: driver.find_element_by_id('manage').is_displayed())
 
 W00t! We've gotten through the signup flow! We *could* go back to 123done and verify that this account now logs in correctly, but it wouldn't introduce anything conceptually different, so it's left as an exercise for the reader.
 
 Stuff we've covered so far:
-    - **Locating elements on the page** using `webdriver.find_element_by_css_selector()` and `webdriver.find_element_by_id()`
-    - **Filling in forms** using `webdriver.send_keys()`
-    - **Waiting for things to happen** using `WebDriverWait(driver, timeout).until(condition)`
-    - **Switching between windows** using `webdriver.switch_to_window(win)`, where `win` is either the `name` attribute on the window or a window reference supplied by `webdriver.current_window()`
-    - **Verifying conditions** using Python's built-in `assert`
+- **Locating elements on the page** using `webdriver.find_element_by_css_selector()` and `webdriver.find_element_by_id()`
+- **Filling in forms** using `webdriver.send_keys()`
+- **Waiting for things to happen** using `WebDriverWait(driver, timeout).until(condition)`
+- **Switching between windows** using `webdriver.switch_to_window(win)`, where `win` is either the `name` attribute on the window or a window reference supplied by `webdriver.current_window()`
+- **Verifying conditions** using Python's built-in `assert`
 
 At this point, you can write Selenium tests with Python, but there's more to cover to make those tests maintainable.
 
@@ -233,3 +226,14 @@ Just for reference, here's everything we did inside one Python script that you c
 
 ## Refs
     - Exhaustive, awesome article on WebDriverWait from the Mozilla WebQA team: [https://blog.mozilla.org/webqa/2012/07/12/how-to-webdriverwait/](https://blog.mozilla.org/webqa/2012/07/12/how-to-webdriverwait/)
+
+## <a href="#footy">More about Travis and Selenium:</a>
+
+Travis-CI doesn't give you anyplace to hide your configs, so rather than have Travis kick off Selenium jobs for us, we had to do the following:
+1. Travis pings a server, creatively named 'testy'
+2. testy uses awsbox to quickly spin up an EC2 instance and deploy the branch from the pull request
+3. testy then uses Sauce Labs' browsers in the cloud to run Selenium tests against the EC2 instance running the code
+4. testy aggregates test results and ships them back to Travis
+5. Travis fails the pull if the Selenium tests failed
+It's an awesome system, but definitely has a few moving parts.
+
