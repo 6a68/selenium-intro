@@ -1,16 +1,19 @@
- # Selenium from zero to POMs
+# Selenium from zero to POMs
 ## What is Selenium
 - browser automation toolkit
 - RC vs webdriver: JS vs OS automation
 ### Code pls
 - code: open browser, surf to google, search for something, open window, toggle windows
+
 ### Debugging
 - there's nothing quite as amazing as opening a python (or node) terminal and driving the browser.
 - this is a good way to debug, too: open pdb on failure and look around
+
 ### Other browsers & configuration tricks
 - IEDriver, CHromeDriver, etc
 - Capabilities (and link to capabilities and client-server docs)
 - Sauce Labs & the need for the standalone JAR
+
 ## POMs: an approach to reusability
 ### first obvious thing: collect selectors in one place
 - this is why you use `By.ID` and `find_element`, not `find_element_by_id`
@@ -33,3 +36,159 @@
 - json wire protocol ref
 - wd library
 
+
+Selenium is a tool that automates user-level browser interaction for testing: opening web pages, filling in forms, and verifying the resulting page says what you'd expect. It's written in Java, but has bindings in lots of languages; this article focuses on writing tests in Python.
+
+I'm a web dev with about six weeks' experience working with Selenium; this introduction aims to cover the basics of writing maintainable Selenium tests, for developers looking to automate a little QA on projects of their own.
+
+## Part 1: Intro to Selenium
+
+Selenium automates browsers. There are two Selenium APIs: the original RC API, which used JavaScript and a Java applet to control the browser; and the newer WebDriver API, which uses OS-level automation to inject JavaScript (for instance, AppleScript on Mac OS). _todo verify this is actually accurate_
+
+If you convert manual QA tests into scripts, the natural next step is to try to run those scripts on as many OS/browser combinations as possible. You can start by using browsers installed on your dev machine, wire up a bunch of machines or VMs using Selenium Grid (warning: requires a lot of setup, as Java apps often do), or use a service like Sauce Labs, which provides cloud-based browsers on demand, plus some nice extras like videos of the test runs.
+
+Having an automatable browser is a huge thing for testing web apps. We're currently using Selenium in a couple of ways: 
+
+- **Selenium tests as backup monitoring solution:** we have a browser trying to log into production on a five-minute cron, as a high-level complement to our pretty minimal lower-level nagios monitors
+- **Selenium tests as pull request sanity check:** we are an open source project, which means we can (and do) use Travis-CI to automatically run unit tests against github pull requests. We added Selenium tests to this--more on it later.(*)
+- **Selenium tests for QA automation:** Since QA testers click around in browsers, and Selenium tests click around in browsers, you can replace repetitive manual testing with a Selenium script that runs across OS/browser combinations. This is the usual use of Selenium, and it's what we'll be focused on for the rest of this article.
+
+(*) Travis-CI doesn't give you anyplace to hide your configs, so rather than have Travis kick off Selenium jobs for us, we had to do the following:
+- Travis pings a server, creatively named 'testy'
+- testy uses awsbox to quickly spin up an EC2 instance and deploy the branch from the pull request
+- testy then uses Sauce Labs' browsers in the cloud to run Selenium tests against the EC2 instance running the code
+- testy aggregates test results and ships them back to Travis
+- Travis fails the pull if the Selenium tests failed
+It's an awesome system, but definitely has a few moving parts.
+
+Okay, enough talk. Let's see some code.
+
+Note that you can kick off a python-selenium session from the python shell. It's pretty much the most amazing thing ever, the first time you do it. It's also an incredibly useful debugging tool: as we'll mention later, if a Selenium test fails, you can have it drop you into a pdb session, which lets you examine the state of things, rather than trying to read a stacktrace.
+
+Aight. If you have firefox on your system, all you have to do is install the python bits. I'm going to use virtualenv to avoid installing packages at top-level on my machine; check out the virtualenv project for more, if this is new to you.
+
+    ]$ virtualenv env
+    ]$ . env/bin/activate
+    (env) ]$ 
+
+Install the selenium package using pip, and you're all set:
+
+    (env) ]$ pip install selenium
+    Downloading/unpacking selenium
+      Downloading selenium-2.25.0.tar.gz (2.0Mb): 2.0Mb downloaded
+      Running setup.py egg_info for package selenium
+        /System/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7/distutils/dist.py:267: UserWarning: Unknown distribution option: 'src_root'
+          warnings.warn(msg)
+        
+        warning: no files found matching 'docs/api/py/index.rst'
+    Installing collected packages: selenium
+      Running setup.py install for selenium
+        /System/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7/distutils/dist.py:267: UserWarning: Unknown distribution option: 'src_root'
+          warnings.warn(msg)
+        
+        warning: no files found matching 'docs/api/py/index.rst'
+    Successfully installed selenium
+    Cleaning up...
+    (env) ]$
+
+Let's fire up a python repl and import webdriver:
+
+    (env) ]$ python
+    Python 2.7.1 (r271:86832, Aug  5 2011, 03:30:24) 
+    [GCC 4.2.1 (Based on Apple Inc. build 5658) (LLVM build 2335.15.00)] on darwin
+    Type "help", "copyright", "credits" or "license" for more information.
+    >>> from selenium import webdriver
+    >>> driver = webdriver.Firefox()
+
+You should see a new Firefox window open up at this point.
+
+Yes, shit just got realer. Let's actually do something, though.
+
+Rather than take you to Google or something--which, btw, you could do really easily:
+
+    >>> driver.get('http://www.google.com')
+
+I'm going to run through some simple interactions on browserid's demo site, 123done.org. Because we have a bunch of really nicely-written code in our github repo, you'll be able to flip back and forth to understand the abstraction as we go.
+
+Okay. Fire up 123done:
+
+    >>> driver.get('http://dev.123done.org/')
+
+Now, we want to log in, but Selenium doesn't know to wait. We'll tell it explicitly to wait until the loading spinner disappears, at which point the login button should be visible:
+
+    >>> from selenium.webdriver.support.ui import WebDriverWait
+    >>> wait_timeout = 5000
+    >>> WebDriverWait(driver, wait_timeout).until(
+    ...     lambda driver: not driver.find_element_by_css_selector('li.loading img').is_displayed())
+
+Pretty gnarly, eh? Since we already had the page open, this will just return right away. The WebDriverWaits become more important when you're running these tests programmatically, in which case they are a really nice alternative to something dumb like `sleep(5)`.(**)
+
+There are a couple of other functions for finding elements, but `find_element_by_css_selector` will get us started.
+
+As a sanity check, verify that the page's title is what you expect. Normally, you'll use some unit testing framework or other for the asserts, but here, we'll just use python's built-in `assert` statement:
+
+    >>> assert driver.title == '123done - your tasks, simplified'
+    >>>
+
+Sweet! No complaints. By the way, since we're in an interactive session, you could also just ask the driver for the title, and verify manually that it seems ok:
+
+    >>> driver.title
+    u'123done - your tasks, simplified'
+    >>>
+
+So far, so good. Now, let's go through the signup flow. In real life, we use a RESTful interface to a throwaway email account, but to keep this simpler, just use your own email, and then we'll paste in the link from the verify-your-account email manually. Here we go:
+
+Find and click 'sign up':
+
+    >>> driver.find_element_by_css_selector('#loggedout > button').click()
+
+Switch to the popup, using its title, '__persona_dialog'. Let's use WebDriverWait again, this time to wait for the dialog to open by looking for the dialog's title in the list of windows:
+
+    >>> WebDriverWait(driver, 8000).until(
+    ...     lambda driver: '__persona_dialog' in driver.window_handles)
+
+Once that WebDriverWait has returned, the popup is ready, so switch to that window:
+
+    >>> driver.switch_to_window('__persona_dialog')
+
+And check the page title, again, just a sanity check
+    
+    >>> Assert.equal(driver.title, 'Mozilla Persona: A Better Way to Sign In')
+    >>>
+
+Totally awesome. Here's where you'll need to enter **your email** and **a dummy password of your choice**. I'll set them as variables to make it easy to copy and paste:
+
+    >>> test_email = 'YOUR_DUMMY_EMAIL_HERE :-)'
+    >>> test_password = '5ecr3tzFTW'
+
+Arright. Now, have the driver find the email input and enter your email address:
+
+    >>> emailInput = driver.find_element_by_id('email')
+    >>> emailInput.clear()
+    >>> emailInput.send_keys(test_email)
+
+Then hit 'next' and wait for the second step to load
+
+    >>> driver.find_element_by_css_selector('button.start').click()
+    >>> WebDriverWait(driver, 5000).until(
+    ...    lambda driver: driver.find_element_by_id('password').is_displayed())
+
+Fill in the two password fields
+
+    >>> passwordInput = driver.find_element_by_id('password')
+    >>> passwordInput.clear()
+    >>> passwordInput.send_keys(test_password)
+    >>> verifyPasswordInput = driver.find_element_by_id('vpassword')
+    >>> verifyPasswordInput.clear()
+    >>> verifyPasswordInput.send_keys(test_password)
+
+Hit the 'done' button
+
+    >>> driver.find_element_by_id('verify_user').click()
+
+
+
+## Refs
+    - Exhaustive, awesome article on WebDriverWait from the Mozilla WebQA team: [https://blog.mozilla.org/webqa/2012/07/12/how-to-webdriverwait/](https://blog.mozilla.org/webqa/2012/07/12/how-to-webdriverwait/)
+
+## Part 2: Maintainable Selenium with Page Objects (POMs)
