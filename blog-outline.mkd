@@ -35,3 +35,25 @@
 - python API ref
 - json wire protocol ref
 - wd library
+
+# third part - tooling stuff. kinda fell off the second part radar.
+# Selenium in production: tools used by mozilla webqa and browserid
+## Tools overview
+- from basics to browserid's tests, some nice layering of tools
+-- bidpom: POMs for publishers who use our third party snippet to test login/logout without duplicating code. we update it when our selectors change, so as long as they keep their submodule/subtree up to date, they never have to worry about our code's structure
+-- takeaway: provide exportable POMs to publishers, if you're a third party widget
+-- unittestzero: a compact DSL around asserts (provide code example)
+-- mozwebqa
+--- specifies a lot of config for you
+--- takeaway: selenium is a lot conceptually. hide what you can.
+-- `run.py`
+--- let people get started without fishing for the right incantation
+-- `run_sauce` (should rename to `run_travis`?)
+--- idea: hide secrets from travis, but still use it.
+--- other idea: as with `run.py`, hide what you can from people who just want to run the tests to verify they're green.
+## maybe? pt 3/appendix: Jenkins config in a nutshell
+- plugins to use
+- tying jobs together
+- passwords: the only way I know of to really hide information
+-- beware: config.xml reveals all, and the REST API reveals a lot too
+

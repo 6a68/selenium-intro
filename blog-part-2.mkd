@@ -1,20 +1,159 @@
-# Selenium in production: tools used by mozilla webqa and browserid
-## Tools overview
-- from basics to browserid's tests, some nice layering of tools
--- bidpom: POMs for publishers who use our third party snippet to test login/logout without duplicating code. we update it when our selectors change, so as long as they keep their submodule/subtree up to date, they never have to worry about our code's structure
--- takeaway: provide exportable POMs to publishers, if you're a third party widget
--- unittestzero: a compact DSL around asserts (provide code example)
--- mozwebqa
---- specifies a lot of config for you
---- takeaway: selenium is a lot conceptually. hide what you can.
--- `run.py`
---- let people get started without fishing for the right incantation
--- `run_sauce` (should rename to `run_travis`?)
---- idea: hide secrets from travis, but still use it.
---- other idea: as with `run.py`, hide what you can from people who just want to run the tests to verify they're green.
-## maybe? pt 3/appendix: Jenkins config in a nutshell
-- plugins to use
-- tying jobs together
-- passwords: the only way I know of to really hide information
--- beware: config.xml reveals all, and the REST API reveals a lot too
+## Second attempt at outline for second part
+In part 1, introduced basic APIs & WebDriverWait. Going deeper, now we consider
+- the wire protocol
+- details of the client-server-grid architecture
+- approaches to code reuse and test organization
+- complexity hiding via tools? is that a third article?
+    - how moz webqa did it, covering the 80/20 cases
 
+### webdriver under the hood: the json wire protocol
+- RESTful JSON interface to the driver/server
+    - pointer to docs
+- how python bindings connect to this interface?
+    - pointer to source code
+- existence of native clients: FFDriver, OperaDriver, etc
+    - location of source code for these clients
+
+### scaling beyond your desktop: more on the client-server-grid architecture
+- what's client, server, grid
+- what protocols they use to communicate
+- scaling out
+    - local grid with VMs or LAN boxes
+    - sauce labs/other cloud providers
+        - note that sauce has a limited list of platforms (link to the list)
+
+### code reuse
+- follows same pattern as every refactoring (see MF's book)
+    - create code to solve the concrete problem, allowing duplication
+    - find duplication
+    - extract out to 1 place
+- a first step: extract selectors
+    - `find_el` and `By.ID` is better than `find_by_id`, as you can change selector type without having to touch code -- just change the selectors
+    - put selectors in classes or config files
+        - if you want to support teams working in different languages (there are lots of bindings), it might be worth it to extract duplicated selectors into config files that can be shared across languages
+            - this might be different teams within a company
+            - it also might be a language-neutral tool that a third-party widget shares with publishers
+        - JSON config format might be: 
+
+            ```javascript
+            account_manager: {
+                url: '/user/account',
+                title: 'Manage Your Account',
+                changePasswordButton: {
+                    type: 'css selector',
+                    value: 'form.update .change-password'
+                }
+            }
+            ```
+
+- going further: POMs
+    - extract stuff from a given page, or partial (header) or ajaxy widget/dynamic content
+    - start with low-level
+        - collect functions to `click`, `send_keys`, check for el's visibility or other properties
+        - ex:
+            - extracting selectors takes you from 
+
+                ```python
+                password_input = driver.find_element_by_css_selector('input.password')
+                password_input.send_keys('s3cret')
+                password_button = driver.find_element_by_id('password-button')
+                driver.click(password_button)
+                ```
+
+            - to 
+
+                ```python
+                _password_input_locator = (By.CSS_SELECTOR, 'input.password')
+                _password_button_locator = (By.ID, 'password-button')
+                _test_password = 's3cret'
+                password_input = driver.find_element(_password_input_locator)
+                password_input.send_keys(_test_password)
+                password_button = driver.find_element(_password_button_locator)
+                driver.click(password_button)
+                ```
+
+        - it's easy to imagine how you might need to interact with this form in many tests, leading to a bunch of duplication across files
+            - low-level POM extraction starts to clean this up:
+                - suppose you've moved the locators into a POM and expose the input and button as properties of that object
+                - your code using the POM would look like 
+
+                    ```python
+                    password_form = PasswordForm()
+                    password_form.input.send_keys(_test_password)
+                    driver.click(password_form.button)
+                    ```
+
+                - at this point, it's easy to see that, actually, you can hide more information:
+
+                    ```python
+                    password_form = PasswordForm()
+                    password_form.update_password() # here you can have a default or a random password generator
+                    ```
+
+- So, the POM approach is to reuse code by collecting low-level functions for a given page or widget in one place: selectors, click or type in an element, check properties of an element
+    - going further, your POMs can expose higher-level functions, like "sign in", "change avatar", "cancel account"
+    - if you go for the higher-level abstractions, it's important to keep the lower-level abstractions public, so that slight variations can be constructed for one-off cases (like changing a password but entering a typo'd version in the second verify-password field) that aren't worth abstracting out.
+    - remember: when it comes to abstraction, a little goes a long way. I personally prefer to use a rule of threes: don't add something to an API without three uses. This rule also applies to API design, in that you should have at least three different clients in mind; I learned this version of the rule from Josh Bloch's great writings and talks.
+- something I didn't clearly cover in the code example: this is super reusable if you want to avoid duplicating the "log out using header menu" flow across different pages:
+    - if you have a log-out header option, and want to test that various pages on your site do the right thing on logout (or log in!), 
+        - you import header POM & call `header.logout()`
+        - instead of 
+            - import header selectors
+            - find and click header menu button
+            - find and click logout button
+            - wait for logged-in user info to disappear from the header/logged-in cookie to be unset
+
+- POM annoyance: 
+
+- Bot approach: instead of abstracting out along page-oriented lines, abstract out actions
+    - low-level example from wiki: type into input but clear it out first
+
+    ```python
+    def type(locator, text):
+        el = driver.find_element(locator)
+        el.clear()
+        el.send_keys(text)
+    ```
+
+- another low-level example: injecting raw javascript into the client page
+    - higher-level example: fill out a form and submit it
+        - the idea is: use this on any page
+        - suppose your selectors are #email and #password and #submit:
+        - suppose you make a function that goes through a list of selectors, finds and clears each, enters the info, then moves on to the next, and assumes the last item in the list is a button to be clicked. that would simplify interacting with every form ever.
+        - it might look like this:
+
+    ```python
+    def complete_form(form_info):
+        # assume the last item is a button, remove it
+        btn = form_info.pop()
+        # loop over the list. 
+            # find each el and type into it--use the type function
+        for input in form_info:
+            type(input['locator'], input['value'])
+        btn.click()
+    ```
+
+- and here's what using that function might give you:
+
+    ```python
+    Bot.complete_form(
+        {'locator': (By.ID, 'email'), 'value':'fake_email123@gmail.com'},
+        {'locator': (By.ID, 'password'), 'value': 's3cret'},
+        (By.ID, 'submit'))
+    ```
+
+- in this approach, the list passed into `complete_form` takes the role of the POM
+            - and you could easily see how you could map from a JSON config file to the input expected by `complete_form`
+- here, you abstract out the actions. this lets you reuse the `complete_form` function for every/any page
+    - http://code.google.com/p/selenium/wiki/BotStyleTests
+
+- in summary, both page-oriented and action-oriented approaches have their uses, and the guiding principle is to explore what is the most robust and simplest abstraction for your specific codebase as it grows.
+    - please leave thoughts on this stuff in the comments! I'm new to messing with selenium and haven't done a lot of work on test organization
+
+### code organization
+- todo: this isn't great. either skip it or add a lot to it.
+- this is a classic question for any test code; it's worthwhile to consult the xUnit Patterns book for in-depth and very balanced discussion of the different options to code organization and loads of other tradeoffs, like dynamic vs static fixtures.
+- two basic approaches:
+    - collecting tests based around a page (a test class holding all the tests on the account manager page, or all tests for the front page)
+    - collecting tests based around a user flow (a test class holding passing and failing tests of the login flow, or of the change password flow)
+        - this one seems to track closer to user interaction reality and manual QA reality, so I prefer this
